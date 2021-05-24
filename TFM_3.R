@@ -422,6 +422,7 @@ library(caret)
 library(Boruta)
 library(randomForest)
 library(rpart)
+library(rpart.plot)
 library(pROC)
 
 #Remover momentaneamente el ID
@@ -444,22 +445,6 @@ rm(rejected)
 
 #Sampling
 rose_b = ROSE(IND_CLIENTE ~ ., data = train_boruta_g1, seed = 1)$data
-
-#Creacion de algoritmo de arboles de decisiones
-tree.rose_b <- rpart(IND_CLIENTE ~ ., data = rose_b)
-
-#Predicciones de los arboles
-pred.tree.rose_b <- predict(tree.rose_b, newdata = test_g1)
-
-#Predicciones de los arboles con clases
-pred.tree.rose_c_b <- predict(tree.rose_b, newdata = test_g1, type = "class")
-
-#Curvas ROC
-roc.curve(test_g1$IND_CLIENTE, pred.tree.rose_b[,2])
-
-#Matrices de confusiones
-cm_rose_b = confusionMatrix(pred.tree.rose_c_b , test_g1$IND_CLIENTE)
-cm_rose_b
 
 ############# TEST FINALIZADO ########################
 
@@ -498,35 +483,83 @@ train_boruta_g2 =train_g2 %>% select(confirmed)
 #Sampling
 rose_b_2 = ROSE(IND_CLIENTE ~ ., data = train_boruta_g2, seed = 1)$data
 
+######################## FIN ANALISIS GRUPO 1 #########################
+
+######################################################################
+######################      MODELOS             ######################
+######################################################################
+
+################# GRUPO 1 ############################
+
+##### DECISION TREE
 #Creacion de algoritmo de arboles de decisiones
-tree.rose_b_2 <- rpart(IND_CLIENTE ~ ., data = rose_b_2)
+tree.rose_b <- rpart(IND_CLIENTE ~ ., data = rose_b)
 
 #Predicciones de los arboles
-pred.tree.rose_b_2 <- predict(tree.rose_b_2, newdata = test_g2)
+pred.tree.rose_b <- predict(tree.rose_b, newdata = test_g1)
 
 #Predicciones de los arboles con clases
-pred.tree.rose_c_b_2 <- predict(tree.rose_b_2, newdata = test_g2, type = "class")
+pred.tree.rose_c_b <- predict(tree.rose_b, newdata = test_g1, type = "class")
 
 #Curvas ROC
-roc.curve(test_g2$IND_CLIENTE, pred.tree.rose_b_2[,2])
+roc.curve(test_g1$IND_CLIENTE, pred.tree.rose_b[,2])
 
 #Matrices de confusiones
-cm_rose_b_2 = confusionMatrix(pred.tree.rose_c_b_2 , test_g2$IND_CLIENTE)
-cm_rose_b_2
+cm_rose_b = confusionMatrix(pred.tree.rose_c_b , test_g1$IND_CLIENTE)
+cm_rose_b
 
+#Visualizacion del arbol
+rpart.plot(tree.rose_b, nn=TRUE)
 
+#ajustando modelo
+dt_control <- rpart.control(minsplit = 5, maxdepth = 8, cp = 0)
+dt_tree.rose_b <- predict(tree.rose_b, newdata = test_g1, type = "class", control=dt_control)
+dt_tree_cm = confusionMatrix(dt_tree.rose_b , test_g1$IND_CLIENTE)
+dt_tree_cm #dio los mismos resultados
 
-write.csv(usuarios_final, "Usuarios_final.csv")
+##### RANDOM FOREST
+x = train_boruta_g1[,2:15]
+y = train_boruta_g1[,16]
+#Creacion del modelo random forest
+id_boruta = train_boruta_g1$ID_USUARIO
+boruta_g1_noid = train_boruta_g1[,2:16]
+rf_g1 = randomForest(IND_CLIENTE ~., boruta_g1_noid, na.action=na.roughfix)
+rf_g1
 
-#save.image("~/Documents/UOC - Master Data Science/6 - I Semester 2021/TFM/Bases y Análisis/TFM_1.RData")
-#save.image("~/Documents/UOC - Master Data Science/6 - I Semester 2021/TFM/Bases y Análisis/TFM_2.RData")
-#save.image("~/Documents/UOC - Master Data Science/6 - I Semester 2021/TFM/Bases y Análisis/TFM_5.RData") #Hasta eliminar variable con multi y chi
-#save.image("~/Documents/UOC - Master Data Science/6 - I Semester 2021/TFM/Bases y Análisis/TFM_6.RData") #Despues de boruta y elegir rose
-#save.image("~/Documents/UOC - Master Data Science/6 - I Semester 2021/TFM/Bases y Análisis/TFM_7.RData") #Despues de boruta y elegir rose en grupo 2
-#load("~/Documents/UOC - Master Data Science/6 - I Semester 2021/TFM/Bases y Análisis/TFM_1.RData")
-#load("~/Documents/UOC - Master Data Science/6 - I Semester 2021/TFM/Bases y Análisis/TFM_2.RData")
-#load("~/Documents/UOC - Master Data Science/6 - I Semester 2021/TFM/Bases y Análisis/TFM_3.RData")
+#prediccion
+rf_g1_pred <- predict(rf_g1, newdata = test_g1, type = "class")
+rf_cm_g1 = confusionMatrix(rf_g1_pred , test_g1$IND_CLIENTE)
+rf_cm_g1
 
+#Ajuste del modelo
+set.seed(1234)
+rf_g1_t = randomForest(IND_CLIENTE ~., boruta_g1_noid, ntree=500, mtry=10,na.action=na.roughfix)
+rf_g1_pred_t <- predict(rf_g1_t, newdata = test_g1, type = "class")
+rf_cm_g1_t = confusionMatrix(rf_g1_pred_t , test_g1$IND_CLIENTE)
+rf_cm_g1_t
 
+install.packages('doParallel')
+library(doParallel)
+registerDoParallel(cores = 7)
 
+#mtry: Number of random variables collected at each split. In normal equal square number columns.
+mtry <- sqrt(ncol(x))
+#ntree: Number of trees to grow.
+ntree <- 3
+
+control <- trainControl(method='repeatedcv', 
+                        number=10, 
+                        repeats=3,
+                        search = 'random')
+
+#Random generate 15 mtry values with tuneLength = 15
+set.seed(1)
+rf_random <- train(IND_CLIENTE ~ .,
+                   data = boruta_g1_noid,
+                   method = 'rf',
+                   metric = 'Accuracy',
+                   tuneLength  = 15, 
+                   trControl = control,
+                   na.action=na.roughfix)
+print(rf_random)
 
