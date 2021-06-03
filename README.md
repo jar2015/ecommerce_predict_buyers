@@ -32,6 +32,7 @@ mientras que el del grupo 2 fue del 65%. Finalmente, se indica que la variable d
 característica de mayor peso para la predicción de los potenciales compradores el ecommerce.
 
 ## Código
+https://github.com/jar2015/ecommerce_predict_buyers/tree/main/code
 
 ## Licencia
 
